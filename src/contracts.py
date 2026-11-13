@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+from zipfile import ZipFile
+
+if TYPE_CHECKING:
+    from .config import RunConfig
 
 
 @dataclass(frozen=True)
@@ -14,6 +18,7 @@ class IngestManifest:
     csv_entry: str
     xml_entry_count: int
     xml_entries_sample: list[str]
+    source_name: str = "egov"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -30,6 +35,7 @@ class ValidationManifest:
     csv_header: list[str]
     missing_required_columns: list[str]
     csv_contract_ok: bool
+    source_name: str = "egov"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -44,6 +50,7 @@ class SnapshotManifest:
     output_jsonl: str
     xml_parsed_count: int | None = None
     xml_parse_policy: str | None = None
+    source_name: str = "egov"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -156,3 +163,46 @@ class LawXmlParser(Protocol):
     def parse(
         self, *, law_id: str, version_id: str, xml_bytes: bytes
     ) -> ParsedLawXml: ...
+
+
+class BulkSource(Protocol):
+    """Adapter that owns source-specific I/O for the pipeline.
+
+    A source encapsulates everything that varies by upstream dataset:
+    how to read the input zip, how to resolve an XML entry, how to map a
+    raw XML payload into the ``LawVersion`` domain model. Downstream
+    stages consume the resulting manifest and JSONL only, so the rest of
+    the pipeline stays source-agnostic.
+    """
+
+    name: str
+
+    def detect(self, zip_path: Path) -> bool:
+        """Return True when this source can handle ``zip_path``."""
+
+    def ingest(self, config: RunConfig) -> IngestManifest:
+        """Identify the dataset and emit an ``IngestManifest``."""
+
+    def validate(
+        self, config: RunConfig, ingest_manifest: IngestManifest
+    ) -> ValidationManifest:
+        """Validate source-specific contracts (CSV columns, XSD, etc.)."""
+
+    def normalize_versions(
+        self,
+        config: RunConfig,
+        ingest_manifest: IngestManifest,
+        law_xml_parser: LawXmlParser | None = None,
+    ) -> SnapshotManifest:
+        """Produce the canonical ``law_versions.jsonl`` for the run."""
+
+    def read_xml(
+        self,
+        zf: ZipFile,
+        zip_index: dict[str, str],
+        *,
+        law_id: str,
+        revision_id: str,
+        xml_entry: str | None,
+    ) -> bytes:
+        """Read a single law XML payload from the source zip."""

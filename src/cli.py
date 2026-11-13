@@ -90,6 +90,12 @@ def _add_common_plan_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Overwrite an existing run directory when planning",
     )
+    parser.add_argument(
+        "--source",
+        default="auto",
+        choices=("auto", "egov", "lawdb"),
+        help="Bulk source adapter (default: auto-detect from zip layout)",
+    )
 
 
 def _add_common_apply_args(parser: argparse.ArgumentParser) -> None:
@@ -169,6 +175,7 @@ def _build_run_config(args: argparse.Namespace, *, include_git: bool) -> RunConf
         force_refs=(args.force or getattr(args, "force_refs", False))
         if include_git
         else False,
+        source=args.source,
     )
 
 

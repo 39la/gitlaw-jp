@@ -166,7 +166,6 @@ def create_snapshot_records(
     rows = _read_csv_rows(config.input_zip, ingest_manifest.csv_entry)
     logger.debug("Loaded %s CSV rows from %s", len(rows), ingest_manifest.csv_entry)
     records: list[dict[str, object]] = []
-    max_embed_bytes = max(config.max_embed_kb, 1) * 1024
     started_at = time.perf_counter()
 
     with ZipFile(config.input_zip, "r") as zf:

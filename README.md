@@ -10,7 +10,7 @@
 
 ## ブランチについて
 
-1. 公布`runs/<run_id>/promulgations`と施行`runs/<run_id>/enforcements`はブランチを分ける
+1. 公布`<run_id>/promulgations`と施行`<run_id>/enforcements`はブランチを分ける
 2. 公布ブランチでは改正法＝commitの単位としたい。
     - 改正法は複数の法律の条文を一気に変える場合がある。
      ![](https://laws.e-gov.go.jp/docs/_next/static/media/210-amendment-of-multiple-laws.a7d76cae.svg)
@@ -22,6 +22,8 @@
 4. 公布-施行ブランチの対応の両立
    - これが一番の課題で、これについては今後どのような形であれば自然か、扱いやすいかなどは考えていくつもり。
    - 今のところ、版単位のcommitを最も小さい単位として、公布ブランチ側では改正法ごとに束ねるmerge commit的なcommitを生成している。
+
+現在実装されている親子関係、並び順、`as_of` の扱い、モデル化しない立法過程については [Gitグラフモデル](docs/git-graph-model.md) を参照してください。
 
 ## 使用方法
 
@@ -38,6 +40,36 @@
     - 既存refを明示的に更新する場合は`--force-refs`を利用します。
   - `full`: plan/applyの両方をまとめて行います。この場合--run-manifestは必要ありません。
   - 詳しくは`-h`または`--help`
+
+## 入力ソース
+
+`--source` で入力データのフォーマットを切り替えます(デフォルト `auto` = zip 構造で自動判別)。
+
+| `--source` | 想定 zip | 説明 |
+|---|---|---|
+| `auto` | - | `all_law_list.csv` を含めば e-Gov、含まずに `Act/`, `Constitution/`, ... を含めば JAHIS `lawdb` と判定 |
+| `egov` | e-Gov 法令API `all_xml.zip` | 従来挙動。CSV + `{law_id}_{revision_id}/{law_id}_{revision_id}.xml` |
+| `lawdb` | 名古屋大学 JAHIS `law_data.zip` | 明治19〜平成29(2017年)の歴史的法令。`{LawType}/{law_id}/{law_id}{type}{seq}.xml` |
+
+lawdb には改正履歴メタデータ (`改正法令名`, `改正法令番号`, `改正法令公布日`) が
+存在しないため、各 XML 版が独立した "改正イベント" として扱われます。
+公布ブランチと施行ブランチで `1版 = 1 commit` の関係が成立し、コミットメッセージの
+`[gitlaw][公布][...]`/`[gitlaw][施行][...]` には law 名・公布日が記録されます。
+
+例: lawdb 用の典型コマンド
+```
+python main.py plan --input-zip payload/law_data.zip \
+                    --source lawdb --all-law-types
+```
+
+### lawdb 利用時の制約
+
+- 施行日メタデータが無いため、`effective_date` は公布日で近似します。`--as-of` による
+  施行投影の絞り込みはこの近似値に依存します。
+- `law_id` は e-Gov の法令IDではなく JAHIS の採番 (`119` など) です。`--law-id` は
+  この値で指定します。
+- lawdb の XSD は e-Gov と別系のため、`--snapshot-parse-xml` による `xml_mvp` 抽出には
+  対応していません。指定時はプレースホルダの `xml_mvp` を出力し、警告ログを出します。
 
 ## パイプライン
 
@@ -56,3 +88,7 @@
   - <https://laws.e-gov.go.jp/api/2/swagger-ui>
 - 法令データドキュメンテーション: <https://laws.e-gov.go.jp/docs/>
 - 日本法令索引: <https://hourei.ndl.go.jp/>
+
+## ライセンス
+
+MIT

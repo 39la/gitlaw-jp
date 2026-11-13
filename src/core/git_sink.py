@@ -11,6 +11,8 @@ from zipfile import ZipFile
 import pygit2
 
 from ..config import RunConfig
+from ..contracts import BulkSource
+from ..sources import resolve_source
 from .models import CommitGraphPlan, GraphSinkResult, PlannedCommit, PlannedFile
 from .strategies import DefaultDateResolutionStrategy
 
@@ -121,39 +123,12 @@ def _build_zip_index(zip_path: Path) -> dict[str, str]:
         return {entry.replace("\\", "/"): entry for entry in zf.namelist()}
 
 
-def _read_xml_from_zip(
-    zf: ZipFile,
-    zip_index: dict[str, str],
-    law_id: str,
-    revision_id: str,
-    xml_entry: str | None = None,
-) -> bytes:
-    if xml_entry:
-        normalized_entry = xml_entry.replace("\\", "/")
-        if normalized_entry in zip_index:
-            with zf.open(zip_index[normalized_entry], "r") as raw:
-                return raw.read()
-    file_name = f"{law_id}_{revision_id}.xml"
-    candidates = [
-        f"{law_id}_{revision_id}/{file_name}",
-        file_name,
-    ]
-    for candidate in candidates:
-        if candidate in zip_index:
-            with zf.open(zip_index[candidate], "r") as raw:
-                return raw.read()
-    for entry_normalized, entry_original in zip_index.items():
-        if entry_normalized.endswith(f"/{file_name}") or entry_normalized == file_name:
-            with zf.open(entry_original, "r") as raw:
-                return raw.read()
-    raise FileNotFoundError(f"xml entry not found for {law_id}:{revision_id}")
-
-
 def _materialize_files(
     planned_files: list[PlannedFile],
     *,
     zf: ZipFile,
     zip_index: dict[str, str],
+    source: BulkSource,
 ) -> dict[str, str]:
     materialized: dict[str, str] = {}
     for planned_file in planned_files:
@@ -164,12 +139,12 @@ def _materialize_files(
             raise ValueError(f"unsupported planned file kind: {planned_file.kind}")
         if not planned_file.law_id or not planned_file.revision_id:
             raise ValueError("zip_xml planned file requires law_id and revision_id")
-        materialized[planned_file.path] = _read_xml_from_zip(
+        materialized[planned_file.path] = source.read_xml(
             zf,
             zip_index,
-            planned_file.law_id,
-            planned_file.revision_id,
-            planned_file.xml_entry,
+            law_id=planned_file.law_id,
+            revision_id=planned_file.revision_id,
+            xml_entry=planned_file.xml_entry,
         ).decode("utf-8")
     return materialized
 
@@ -223,10 +198,12 @@ def execute_commit_graph_plan(
     config: RunConfig,
     plan: CommitGraphPlan,
     input_zip: Path,
+    source_name: str | None = None,
 ) -> GraphSinkResult:
     if not config.git_repo_root:
         raise ValueError("git_repo_root required for commit graph sink")
 
+    source = resolve_source(source_name or config.source, input_zip)
     repo = pygit2.Repository(str(config.git_repo_root))
     zip_index = _build_zip_index(input_zip)
     commits_by_id: dict[str, pygit2.Commit] = {}
@@ -280,7 +257,12 @@ def execute_commit_graph_plan(
                 tree_source_commit = base_commit
 
             materialize_started_at = perf_counter()
-            files = _materialize_files(planned_commit.files, zf=zf, zip_index=zip_index)
+            files = _materialize_files(
+                planned_commit.files,
+                zf=zf,
+                zip_index=zip_index,
+                source=source,
+            )
             materialize_elapsed = perf_counter() - materialize_started_at
 
             signature = _make_signature(_resolve_unix_ts(planned_commit.author_date))

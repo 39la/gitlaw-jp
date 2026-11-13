@@ -14,6 +14,7 @@ from .models import (
     law_storage_dir,
     LawVersion,
     PlannedFile,
+    revision_to_effective_date_hint,
 )
 
 FALLBACK_SORT_DATE = "9999-12-31"
@@ -241,21 +242,7 @@ class DefaultDateResolutionStrategy:
         if normalized_effective is not None:
             return normalized_effective, "effective_date"
 
-        revision_hint = LawVersion(
-            law_id="",
-            revision_id=revision_id,
-            law_type="",
-            law_num="",
-            law_name="",
-            promulgation_date="",
-            amendment_law_name="",
-            amendment_law_num="",
-            amendment_promulgation_date="",
-            effective_date="",
-            effective_note="",
-            is_marked_unenforced=False,
-            source_body_url="",
-        ).effective_date_hint
+        revision_hint = revision_to_effective_date_hint(revision_id)
         if revision_hint is not None:
             return revision_hint, "revision_id"
 

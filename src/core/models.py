@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 CommitLayer = Literal["promulgation", "enforcement"]
 ProjectionName = Literal["promulgation", "enforcement"]
@@ -66,6 +67,30 @@ class LawVersion:
     xml_entry: str = ""
     xml_sha256: str = ""
     xml_mvp: dict[str, object] | None = None
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> LawVersion:
+        xml_mvp = payload.get("xml_mvp")
+        return cls(
+            law_id=str(payload.get("law_id", "")),
+            revision_id=str(payload.get("revision_id", "")),
+            law_type=str(payload.get("law_type", "")),
+            law_num=str(payload.get("law_num", "")),
+            law_name=str(payload.get("law_name", "")),
+            promulgation_date=str(payload.get("promulgation_date", "")),
+            amendment_law_name=str(payload.get("amendment_law_name", "")),
+            amendment_law_num=str(payload.get("amendment_law_num", "")),
+            amendment_promulgation_date=str(
+                payload.get("amendment_promulgation_date", "")
+            ),
+            effective_date=str(payload.get("effective_date", "")),
+            effective_note=str(payload.get("effective_note", "")),
+            is_marked_unenforced=bool(payload.get("is_marked_unenforced", False)),
+            source_body_url=str(payload.get("source_body_url", "")),
+            xml_entry=str(payload.get("xml_entry", "")),
+            xml_sha256=str(payload.get("xml_sha256", "")),
+            xml_mvp=xml_mvp if isinstance(xml_mvp, dict) else None,
+        )
 
     @property
     def effective_date_hint(self) -> str | None:
@@ -166,6 +191,21 @@ class PlannedFile:
     revision_id: str | None = None
     xml_entry: str | None = None
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> PlannedFile:
+        def optional_text(key: str) -> str | None:
+            value = payload.get(key)
+            return str(value) if value is not None else None
+
+        return cls(
+            path=str(payload["path"]),
+            kind=cast(PlannedFileKind, str(payload["kind"])),
+            content=optional_text("content"),
+            law_id=optional_text("law_id"),
+            revision_id=optional_text("revision_id"),
+            xml_entry=optional_text("xml_entry"),
+        )
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -181,6 +221,41 @@ class PlannedCommit:
     author_date: str
     target_ref: str | None = None
     tree_source_commit_id: str | None = None
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> PlannedCommit:
+        raw_files = payload.get("files", [])
+        raw_parents = payload.get("parent_commit_ids", [])
+        raw_trailers = payload.get("trailers", {})
+        if not isinstance(raw_files, list):
+            raise TypeError("planned commit files must be a list")
+        if not isinstance(raw_parents, list):
+            raise TypeError("planned commit parents must be a list")
+        if not isinstance(raw_trailers, dict):
+            raise TypeError("planned commit trailers must be an object")
+        return cls(
+            commit_id=str(payload["commit_id"]),
+            projection=cast(ProjectionName, str(payload["projection"])),
+            parent_commit_ids=[str(item) for item in raw_parents],
+            files=[
+                PlannedFile.from_dict(item)
+                for item in raw_files
+                if isinstance(item, dict)
+            ],
+            message=str(payload["message"]),
+            trailers={str(key): str(value) for key, value in raw_trailers.items()},
+            author_date=str(payload["author_date"]),
+            target_ref=(
+                str(payload["target_ref"])
+                if payload.get("target_ref") is not None
+                else None
+            ),
+            tree_source_commit_id=(
+                str(payload["tree_source_commit_id"])
+                if payload.get("tree_source_commit_id") is not None
+                else None
+            ),
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -201,6 +276,13 @@ class RefUpdate:
     ref_name: str
     commit_id: str
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> RefUpdate:
+        return cls(
+            ref_name=str(payload["ref_name"]),
+            commit_id=str(payload["commit_id"]),
+        )
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -210,6 +292,31 @@ class CommitGraphPlan:
     planned_commits: list[PlannedCommit]
     ref_updates: list[RefUpdate]
     metadata: dict[str, object] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> CommitGraphPlan:
+        raw_commits = payload.get("planned_commits", [])
+        raw_ref_updates = payload.get("ref_updates", [])
+        raw_metadata = payload.get("metadata", {})
+        if not isinstance(raw_commits, list):
+            raise TypeError("planned_commits must be a list")
+        if not isinstance(raw_ref_updates, list):
+            raise TypeError("ref_updates must be a list")
+        if not isinstance(raw_metadata, dict):
+            raise TypeError("metadata must be an object")
+        return cls(
+            planned_commits=[
+                PlannedCommit.from_dict(item)
+                for item in raw_commits
+                if isinstance(item, dict)
+            ],
+            ref_updates=[
+                RefUpdate.from_dict(item)
+                for item in raw_ref_updates
+                if isinstance(item, dict)
+            ],
+            metadata=dict(raw_metadata),
+        )
 
     def to_dict(self) -> dict:
         return {

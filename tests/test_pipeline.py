@@ -145,7 +145,7 @@ class PipelineV3Tests(unittest.TestCase):
             fake_now = datetime(
                 2026, 4, 2, 12, 0, 0, tzinfo=timezone(timedelta(hours=9))
             )
-            with patch("src.stages.ingest.datetime") as mocked_datetime:
+            with patch("src.sources._common.datetime") as mocked_datetime:
                 mocked_datetime.now.return_value = fake_now
                 mocked_datetime.strftime = datetime.strftime
                 result = run_plan(
@@ -156,7 +156,7 @@ class PipelineV3Tests(unittest.TestCase):
             stale_file = output_root / result.run_id / "stale.txt"
             stale_file.write_text("stale\n", encoding="utf-8")
 
-            with patch("src.stages.ingest.datetime") as mocked_datetime:
+            with patch("src.sources._common.datetime") as mocked_datetime:
                 mocked_datetime.now.return_value = fake_now
                 mocked_datetime.strftime = datetime.strftime
                 rerun = run_plan(

@@ -187,7 +187,7 @@ class CommitGraphSinkTests(unittest.TestCase):
 
             repo = pygit2.Repository(str(repo_path))
             prom_ref = repo.lookup_reference(
-                f"refs/heads/runs/{plan.metadata['run_id']}/promulgations"
+                f"refs/heads/{plan.metadata['run_id']}/promulgations"
             )
             prom_tip = repo[prom_ref.target]
 
@@ -281,7 +281,7 @@ class CommitGraphSinkTests(unittest.TestCase):
 
             repo = pygit2.Repository(str(repo_path))
             enf_ref = repo.lookup_reference(
-                f"refs/heads/runs/{plan.metadata['run_id']}/enforcements"
+                f"refs/heads/{plan.metadata['run_id']}/enforcements"
             )
             enf_tip = repo[enf_ref.target]
 

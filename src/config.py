@@ -33,6 +33,7 @@ class RunConfig:
     law_ids: tuple[str, ...] = ()
     force: bool = False
     force_refs: bool = False
+    source: str = "auto"
 
     def normalized(self) -> RunConfig:
         git_repo_root = (
@@ -56,4 +57,5 @@ class RunConfig:
             law_ids=tuple(self.law_ids),
             force=self.force,
             force_refs=self.force_refs,
+            source=self.source,
         )

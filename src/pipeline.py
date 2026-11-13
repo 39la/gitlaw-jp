@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import RunConfig, serialize_path
-from .contracts import ApplyResult, GraphPlanManifest, PipelineResult
+from .contracts import ApplyResult, GraphPlanManifest, IngestManifest, PipelineResult
 from .core.git_sink import execute_commit_graph_plan
-from .core.models import CommitGraphPlan, PlannedCommit, PlannedFile, RefUpdate
+from .core.models import CommitGraphPlan
 from .core.planner import (
     build_commit_graph_plan,
     timelines_from_jsonl,
@@ -39,6 +40,7 @@ def _write_run_manifest_v3(
     dataset_id: str,
     run_id: str,
     effective_as_of: str | None,
+    ingest_manifest: IngestManifest,
     ingest_manifest_path: Path,
     validate_manifest_path: Path,
     normalize_manifest_path: Path,
@@ -66,6 +68,7 @@ def _write_run_manifest_v3(
         "branch_model": config.branch_model,
         "input_zip": serialize_path(config.input_zip),
         "as_of": effective_as_of,
+        "source": ingest_manifest.source_name,
         "branch_prefixes": {
             "promulgation": config.promulgation_branch_prefix,
             "enforcement": config.enforcement_branch_prefix,
@@ -89,43 +92,7 @@ def _resolve_run_path(path_str: str) -> Path:
 
 
 def _load_commit_graph_plan(path: Path) -> CommitGraphPlan:
-    payload = _load_json(path)
-    planned_commits = [
-        PlannedCommit(
-            commit_id=str(item["commit_id"]),
-            projection=str(item["projection"]),
-            parent_commit_ids=list(item.get("parent_commit_ids", [])),
-            files=[
-                PlannedFile(
-                    path=str(file_item["path"]),
-                    kind=str(file_item["kind"]),
-                    content=file_item.get("content"),
-                    law_id=file_item.get("law_id"),
-                    revision_id=file_item.get("revision_id"),
-                    xml_entry=file_item.get("xml_entry"),
-                )
-                for file_item in item.get("files", [])
-            ],
-            message=str(item["message"]),
-            trailers=dict(item.get("trailers", {})),
-            author_date=str(item["author_date"]),
-            target_ref=item.get("target_ref"),
-            tree_source_commit_id=item.get("tree_source_commit_id"),
-        )
-        for item in payload.get("planned_commits", [])
-    ]
-    ref_updates = [
-        RefUpdate(
-            ref_name=str(item["ref_name"]),
-            commit_id=str(item["commit_id"]),
-        )
-        for item in payload.get("ref_updates", [])
-    ]
-    return CommitGraphPlan(
-        planned_commits=planned_commits,
-        ref_updates=ref_updates,
-        metadata=dict(payload.get("metadata", {})),
-    )
+    return CommitGraphPlan.from_dict(_load_json(path))
 
 
 def run_plan(config: RunConfig) -> PipelineResult:
@@ -211,6 +178,7 @@ def run_plan(config: RunConfig) -> PipelineResult:
         dataset_id=ingest_manifest.dataset_id,
         run_id=ingest_manifest.run_id,
         effective_as_of=effective_as_of,
+        ingest_manifest=ingest_manifest,
         ingest_manifest_path=ingest_manifest_path,
         validate_manifest_path=validate_manifest_path,
         normalize_manifest_path=normalize_manifest_path,
@@ -244,10 +212,12 @@ def run_apply(config: RunConfig, *, run_manifest_path: Path) -> ApplyResult:
     graph_plan_manifest = _load_json(graph_plan_manifest_path)
     graph_plan_path = _resolve_run_path(str(graph_plan_manifest["output_json"]))
     graph_plan = _load_commit_graph_plan(graph_plan_path)
+    source_name = str(run_manifest.get("source", conf.source))
 
     logger.info("=" * 70)
     logger.info("Starting apply")
     logger.info("Run ID: %s", run_id)
+    logger.info("Source: %s", source_name)
     logger.info("Git repo root: %s", conf.git_repo_root)
     logger.info("Graph plan: %s", graph_plan_path)
     logger.info("=" * 70)
@@ -256,6 +226,7 @@ def run_apply(config: RunConfig, *, run_manifest_path: Path) -> ApplyResult:
         config=conf,
         plan=graph_plan,
         input_zip=input_zip,
+        source_name=source_name,
     )
     git_sink_dir = run_manifest_path.parent / "stages" / "06_git_sink"
     git_sink_manifest_path = _write_json_manifest(
@@ -282,24 +253,9 @@ def run_full(config: RunConfig) -> PipelineResult:
     conf = config.normalized()
     effective_as_of = conf.as_of
     if effective_as_of is None and conf.git_repo_root is not None:
-        conf = RunConfig(
-            input_zip=conf.input_zip,
-            output_root=conf.output_root,
-            xsd_path=conf.xsd_path,
+        conf = replace(
+            conf,
             as_of=datetime.now(_JST).strftime("%Y-%m-%d"),
-            git_repo_root=conf.git_repo_root,
-            git_target_dir=conf.git_target_dir,
-            git_max_commits=conf.git_max_commits,
-            snapshot_parse_xml=conf.snapshot_parse_xml,
-            max_embed_kb=conf.max_embed_kb,
-            branch_model=conf.branch_model,
-            promulgation_branch_prefix=conf.promulgation_branch_prefix,
-            enforcement_branch_prefix=conf.enforcement_branch_prefix,
-            message_template=conf.message_template,
-            law_types=conf.law_types,
-            law_ids=conf.law_ids,
-            force=conf.force,
-            force_refs=conf.force_refs,
         )
 
     plan_result = run_plan(conf)

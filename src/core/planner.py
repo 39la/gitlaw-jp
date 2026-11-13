@@ -47,58 +47,19 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
 
 
 def law_versions_from_jsonl(path: Path) -> list[LawVersion]:
-    versions: list[LawVersion] = []
-    for row in _read_jsonl(path):
-        versions.append(
-            LawVersion(
-                law_id=str(row.get("law_id", "")),
-                revision_id=str(row.get("revision_id", "")),
-                law_type=str(row.get("law_type", "")),
-                law_num=str(row.get("law_num", "")),
-                law_name=str(row.get("law_name", "")),
-                promulgation_date=str(row.get("promulgation_date", "")),
-                amendment_law_name=str(row.get("amendment_law_name", "")),
-                amendment_law_num=str(row.get("amendment_law_num", "")),
-                amendment_promulgation_date=str(
-                    row.get("amendment_promulgation_date", "")
-                ),
-                effective_date=str(row.get("effective_date", "")),
-                effective_note=str(row.get("effective_note", "")),
-                is_marked_unenforced=bool(row.get("is_marked_unenforced", False)),
-                source_body_url=str(row.get("source_body_url", "")),
-                xml_entry=str(row.get("xml_entry", "")),
-                xml_sha256=str(row.get("xml_sha256", "")),
-                xml_mvp=row.get("xml_mvp"),
-            )
-        )
-    return versions
+    return [LawVersion.from_dict(row) for row in _read_jsonl(path)]
 
 
 def timelines_from_jsonl(path: Path) -> list[LawTimeline]:
     timelines: list[LawTimeline] = []
     for row in _read_jsonl(path):
+        raw_versions = row.get("versions", [])
+        if not isinstance(raw_versions, list):
+            raise TypeError("timeline versions must be a list")
         versions = [
-            LawVersion(
-                law_id=str(version.get("law_id", "")),
-                revision_id=str(version.get("revision_id", "")),
-                law_type=str(version.get("law_type", "")),
-                law_num=str(version.get("law_num", "")),
-                law_name=str(version.get("law_name", "")),
-                promulgation_date=str(version.get("promulgation_date", "")),
-                amendment_law_name=str(version.get("amendment_law_name", "")),
-                amendment_law_num=str(version.get("amendment_law_num", "")),
-                amendment_promulgation_date=str(
-                    version.get("amendment_promulgation_date", "")
-                ),
-                effective_date=str(version.get("effective_date", "")),
-                effective_note=str(version.get("effective_note", "")),
-                is_marked_unenforced=bool(version.get("is_marked_unenforced", False)),
-                source_body_url=str(version.get("source_body_url", "")),
-                xml_entry=str(version.get("xml_entry", "")),
-                xml_sha256=str(version.get("xml_sha256", "")),
-                xml_mvp=version.get("xml_mvp"),
-            )
-            for version in row.get("versions", [])
+            LawVersion.from_dict(version)
+            for version in raw_versions
+            if isinstance(version, dict)
         ]
         timelines.append(
             LawTimeline(law_id=str(row.get("law_id", "")), versions=versions)
@@ -150,8 +111,6 @@ def build_enforcement_units(
     as_of: str | None = None,
 ) -> list[EnforcementUnit]:
     units: list[EnforcementUnit] = []
-    event_by_id: dict[str, AmendmentEvent] = {}
-
     for timeline in timelines:
         grouped_versions: dict[str, list[LawVersion]] = defaultdict(list)
         for version in timeline.versions:
@@ -161,7 +120,6 @@ def build_enforcement_units(
             event = resolve_primary_amendment_event(
                 versions, grouping_strategy=grouping
             )
-            event_by_id[event.amendment_id] = event
             sorted_versions = (
                 ordering or DefaultTimelineOrderingStrategy()
             ).sort_law_versions(versions)
